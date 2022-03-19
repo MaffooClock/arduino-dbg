@@ -173,7 +173,7 @@ class DebuggerIOError(Exception):
 
 
 class UnsupportedDebuggerProtocolException(DebuggerIOError):
-    """ We cannot interact with a sketch running a newer version of dbglib. """
+    """ We cannot interact with a sketch running a newer version of the PyArduinoDebug library. """
     pass
 
 

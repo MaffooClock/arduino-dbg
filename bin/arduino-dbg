@@ -2,7 +2,7 @@
 #
 # (c) Copyright 2021 Aaron Kimball
 #
-# arduino-dbg: Arduino debug console client that works with `dbglib`.
+# arduino-dbg: Arduino debug console client that works with the `PyArduinoDebug` library.
 #
 # Usage: arduino-dbg -p <port> [-f <imageName.elf>]
 

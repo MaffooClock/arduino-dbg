@@ -5,9 +5,14 @@ This is a console debugger for use with sketches running on an embedded Arduino 
 After uploading your sketch to the Arduino, you can connect the serial port to your
 computer and debug your running sketch with this application.
 
+![debugger screenshot](./doc/dbg-screenshot.png)
+
 You must include a small debugging library (`dbg.cpp` and `dbg.h`) available at
-https://github.com/kimballa/arduino-workspace in your application. You should
-`#include <dbg.h>` and link with `dbglib.a` to enable debugging your sketch.
+https://github.com/kimballa/PyArduinoDebug in your application. 
+
+* Arduino IDE users can include the `PyArduinoDebug` library in their sketch dependencies.
+* If compiling with a Makefile, you should `#include <dbg.h>` and link with `libPyArduinoDebug.a`
+  to enable debugging your sketch.
 
 You will find instructions in `dbg.h` on the API for creating unconditional
 and assertion-based breakpoints, and emitting debug and trace messages.
@@ -15,9 +20,10 @@ and assertion-based breakpoints, and emitting debug and trace messages.
 Setup
 -----
 
-* Install the debugger and its dependencies with: `cd debugger/arduino_dbg/ && pip install .`
+* Install this debugger and its dependencies with: `pip install .`
 * If not already installed, install `binutils` through your OS package manager.
-* Build the Arduino library with `cd debugger/dbglib && make install`
+* Clone and build the [Arduino library](https://github.com/kimballa/PyArduinoDebug) with
+  `make install`.
 * Follow instructions in `dbg.h` to include in your application.
 * Run `arduino-dbg` to launch the debug console. Use `-h` to see CLI options.
 * Set your Arduino platform: e.g.: `set arduino.platform = uno`
@@ -106,3 +112,7 @@ create new breakpoints or watchpoints dynamically at run-time.
 
 On such platforms, the ARM `BKPT` opcode will also properly enter the debugger service.
 
+License
+=======
+
+This project is licensed under the BSD 3-Clause license. See LICENSE.txt for complete details.
