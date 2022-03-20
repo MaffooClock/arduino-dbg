@@ -21,9 +21,11 @@ and assertion-based breakpoints, and emitting debug and trace messages.
 Setup
 -----
 
-* Install this debugger and its dependencies with: `pip install .`
-* If not already installed, install `binutils` through your OS package manager.
-* Clone and build the [Arduino library](https://github.com/kimballa/PyArduinoDebug) with
+* Install this debugger and its dependencies with `pip install arduino-dbg` or if you
+  have checked out the source on github with: `pip install .`
+* If not already installed, install `binutils` through your OS package manager (`apt`, `yum`, ...).
+* Add the `PyArduinoDebug` library to your project in the Arduino IDE, or clone and
+  build the [Arduino library](https://github.com/kimballa/PyArduinoDebug) with
   `make install`.
 * Follow instructions in `PyArduinoDebug.h` to include in your application.
 * Run `arduino-dbg` to launch the debug console. Use `-h` to see CLI options.
