@@ -5,16 +5,17 @@ This is a console debugger for use with sketches running on an embedded Arduino 
 After uploading your sketch to the Arduino, you can connect the serial port to your
 computer and debug your running sketch with this application.
 
-![debugger screenshot](./doc/dbg-screenshot.png)
+![debugger
+screenshot](https://raw.githubusercontent.com/kimballa/arduino-dbg/main/doc/dbg-screenshot.png)
 
-You must include a small debugging library (`dbg.cpp` and `dbg.h`) available at
+You must include a small debugging library (`dbg.cpp` and `PyArduinoDebug.h`) available at
 https://github.com/kimballa/PyArduinoDebug in your application. 
 
 * Arduino IDE users can include the `PyArduinoDebug` library in their sketch dependencies.
-* If compiling with a Makefile, you should `#include <dbg.h>` and link with `libPyArduinoDebug.a`
-  to enable debugging your sketch.
+* If compiling with a Makefile, you should `#include <PyArduinoDebug.h>` and link with
+  `libPyArduinoDebug.a` to enable debugging your sketch.
 
-You will find instructions in `dbg.h` on the API for creating unconditional
+You will find instructions in `PyArduinoDebug.h` on the API for creating unconditional
 and assertion-based breakpoints, and emitting debug and trace messages.
 
 Setup
@@ -24,7 +25,7 @@ Setup
 * If not already installed, install `binutils` through your OS package manager.
 * Clone and build the [Arduino library](https://github.com/kimballa/PyArduinoDebug) with
   `make install`.
-* Follow instructions in `dbg.h` to include in your application.
+* Follow instructions in `PyArduinoDebug.h` to include in your application.
 * Run `arduino-dbg` to launch the debug console. Use `-h` to see CLI options.
 * Set your Arduino platform: e.g.: `set arduino.platform = uno`
 * Use the `help` command at the prompt to see available capabilities.

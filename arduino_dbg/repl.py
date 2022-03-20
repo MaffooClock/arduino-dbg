@@ -935,12 +935,6 @@ class Repl(object):
 
         if len(argv) == 0:
             ### No key argument -- display entire configuration ###
-            self._debugger.msg_q(MsgLevel.INFO, "Configurable debugger settings:")
-            self._debugger.msg_q(MsgLevel.INFO, "-------------------------------")
-            for (k, v) in self._debugger.get_full_config():
-                _print_kv_pair(k, v)
-
-            self._debugger.msg_q(MsgLevel.INFO, "")
             self._debugger.msg_q(MsgLevel.INFO, "Arduino platform configuration:")
             self._debugger.msg_q(MsgLevel.INFO, "-------------------------------")
             platform = self._debugger.get_full_platform_config()
@@ -968,6 +962,12 @@ class Repl(object):
             else:
                 for (k, v) in arch:
                     _print_kv_pair(k, v)
+
+            self._debugger.msg_q(MsgLevel.INFO, "")
+            self._debugger.msg_q(MsgLevel.INFO, "Configurable debugger settings:")
+            self._debugger.msg_q(MsgLevel.INFO, "-------------------------------")
+            for (k, v) in self._debugger.get_full_config():
+                _print_kv_pair(k, v)
 
         elif len(argv) == 1 and len(argv[0].split("=", 1)) == 1:
             ### Got something of the form `set x`; just print value of x. ###

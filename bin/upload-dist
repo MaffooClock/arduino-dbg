@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# (c) Copyright 2022 Aaron Kimball
+#
+# Upload a distribution of arduino-dbg to pypi
+
+dbgroot=`dirname $0`/../
+dbgroot=`readlink -f "${dbgroot}"`
+
+cd "${dbgroot}"
+
+if [ ! -d 'dist' ]; then
+  echo "No distribution directory available. Build with bin/make-dist"
+  exit 1
+fi
+
+echo "Uploading the following distribution:"
+bash -c 'cd dist && ls -1 *.tar.gz'
+echo ""
+echo "Does this look correct? Type 'upload' to continue"
+read -p "> " confirm
+
+if [ "$confirm" != "upload" ]; then
+  echo "Confirmation failed -- aborting"
+  exit 1
+fi
+
+echo "Uploading to pypi..."
+exec python3 -m twine upload dist/*
+

@@ -5,7 +5,7 @@ Version info for Arduino Debugger.
 """
 # This module **must not** import anything else!
 
-DBG_VERSION = [0, 1, 0]
+DBG_VERSION = [0, 2, 0]
 DBG_VERSION_STR = '.'.join(map(str, DBG_VERSION))
 FULL_DBG_VERSION_STR = f'Arduino Debugger (adbg) version {DBG_VERSION_STR}'
 
