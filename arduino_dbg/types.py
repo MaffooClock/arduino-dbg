@@ -398,6 +398,7 @@ class PrgmType(DieBase):
         if size is not None and not isinstance(size, int):
             raise TypeError(f'PrgmType.size must be int or None; got type {size.__class__}')
         self._parent_type = parent_type
+        self._template_params = []
 
 
     def parent_type(self):
@@ -414,7 +415,28 @@ class PrgmType(DieBase):
 
     def get_type(self):
         # Implement DieBase method.
-        return self._parent_type
+        return self._parent_type or self
+
+    def get_template_params(self):
+        return self._template_params
+
+    def add_template_param(self, param):
+        """
+        Add a TemplateParam to the list for this item.
+
+        e.g. for class X which was specified as `class X<class T>` or `X<int Y>`, and used like
+        X<Foo> or X<42>, we would would process a DW_TAG_template_type_parameter Foo or
+        DW_TAG_template_value_parameter 42 at the point of use.
+        """
+        self._template_params.append(param)
+
+    def getOrigin(self):
+        # Add a catch-all getOrigin. If we have a parent type, pass the buck to them.
+        # Otherwise just return this object as we are our own origin by default.
+        if self._parent_type is not None:
+            return self._parent_type.getOrigin()
+        else:
+            return self
 
     def pointer_depth(self):
         """
@@ -510,6 +532,12 @@ class PrgmType(DieBase):
 
         return s
 
+    def fmt_template_params(self):
+        if len(self._template_params) == 0:
+            return ''
+        else:
+            return '<' + ', '.join(map(lambda t: repr(t), self._template_params)) + '>'
+
     def __repr__(self):
         return f'{self.name}'
 
@@ -533,9 +561,84 @@ class PrimitiveType(PrgmType):
         return self.name
 
 
+class TemplateParam(PrgmType):
+    """
+    A type or value argument to a template definition.
+
+    name is the name of the formal arg, if given. (e.g. 'E' in 'class X<class E> { ... }')
+    typ is the type, which may be a formal arg type within a formal context ("X<int y>"), or the actual
+        type ("Foo" in "X<Foo> bar;")
+    """
+
+    def __init__(self, name, typ, cuns, scope=None):
+        PrgmType.__init__(self, name, 0, typ)
+        self.param_type = typ
+        self.actual_val = None   # Actual machine-representable value within an actual template arg.
+        self.default_val = None  # Default value specified within a formal template arg.
+        self._location = None
+        self._cuns = cuns  # Needed for resolving a Location to a value.
+        self._scope = scope
+
+    def set_default_val(self, default):
+        self.default_val = default
+
+    def set_actual_val(self, val):
+        self.actual_val = val
+
+    def set_location(self, loc):
+        self._location = loc
+
+    def getValue(self, regs={}, frame=None):
+        """
+        Evaluate the location info to get the current value of this template variable.
+
+        @param regs the current register state for the frame.
+        @param frame the backtrace frame for this variable's scope.
+        @return a tuple containing:
+            - the value of the variable, or None if no such info is available
+            - some LookupFlags OR'd together indicating info about the value.
+        """
+        if self.actual_val is not None:
+            # We got it hardcoded.
+            return (self.actual_val, el.LookupFlags.OK | el.LookupFlags.COMPILE_TIME_CONST)
+
+        loc = self._location
+        if loc is not None:
+            self._cuns.getDebugger().verboseprint("Getting value for template arg: ", self.name)
+            expr_machine = self._cuns.getExprMachine(loc, regs)
+            if expr_machine is None:
+                return (None, el.LookupFlags.ERR_PC_OUT_OF_BOUNDS)
+            expr_machine.setScope(self._scope)
+            expr_machine.setFrame(frame)
+            return expr_machine.access(self.arg_type)
+
+        if self.default_val is not None:
+            # It was hardcoded as a default value that was not overridden by an actual const
+            # val or location.
+            return (self.default_val, el.LookupFlags.OK | el.LookupFlags.COMPILE_TIME_CONST)
+
+        # We're out of ideas on how to find this.
+        return (None, el.LookupFlags.ERR_NO_LOCATION)
+
+    def __repr__(self):
+        (val, val_flags) = self.getValue()
+        has_val = (val_flags & el.LookupFlags.OK) != 0
+        words = []
+        if self.param_type is not None:
+            words.append(str(self.param_type))
+        if self.name is not None and len(self.name) > 0:
+            words.append(self.name)
+        if has_val:
+            if len(words) > 0:
+                words.append("=")
+            words.append(str(val))
+
+        return " ".join(words)
+
+
 class ConstType(PrgmType):
     """
-    A const form of another type
+    A const form of another type.
     """
     def __init__(self, base_type):
         if base_type.name.endswith("*"):
@@ -642,6 +745,25 @@ class ReferenceType(PrgmType):
     """
     def __init__(self, base_type, addr_size):
         name = f'{base_type.name}&'
+        PrgmType.__init__(self, name, addr_size, base_type)
+
+    def pointer_depth(self):
+        return self.parent_type().pointer_depth() + 1
+
+    # currently using default of 'is_array()' looking at parent_type, which will
+    # then be true only if we have an array of pointers. pointer to array will
+    # return pointer=True, array=False.
+
+    def __repr__(self):
+        return f'{self.name}'
+
+
+class RValReferenceType(PrgmType):
+    """
+    An r-value reference to an item of type T.
+    """
+    def __init__(self, base_type, addr_size):
+        name = f'({base_type.name})&'
         PrgmType.__init__(self, name, addr_size, base_type)
 
     def pointer_depth(self):
@@ -821,6 +943,11 @@ class LexicalScope(DieBase):
         if self._containingScope:
             self._containingScope.addFormal(arg)
 
+    def setVarArgs(self, has_var_args):
+        # Pass formal argument on to containing Method.
+        if self._containingScope:
+            self._containingScope.setVarArgs(has_var_args)
+
     def getFormals(self):
         return []
 
@@ -837,18 +964,25 @@ class MethodPtrType(PrgmType):
         self.return_type = return_type or _VOID
         self.member_of = member_of
         self.formal_args = []
+        self.has_var_args = False
 
     def addFormal(self, arg):
         if arg is None:
             arg = FormalArg('', _VOID, None)
         self.formal_args.append(arg)
 
+    def setVarArgs(self, has_var_args):
+        self.has_var_args = has_var_args
+
     def pointer_depth(self):
         return 1
 
     def __repr__(self):
         formals = FormalArg.filter_signature_args(self.formal_args)
+        if self.has_var_args:
+            formals.append("...")
         formals = ', '.join(map(lambda arg: f'{arg}', formals))
+
         if self.member_of:
             member = self.member_of.class_name + '::'
         else:
@@ -897,6 +1031,7 @@ class MethodInfo(PrgmType):
         self._origin = origin
         self.formal_args = []
         self.frame_base = None
+        self.has_var_args = False
 
     def addFormal(self, arg):
         if arg is None:
@@ -910,6 +1045,9 @@ class MethodInfo(PrgmType):
             arg.redundant = (len(existing) > 0)  # set redundant flag if we found arg w/ same name.
 
         self.formal_args.append(arg)
+
+    def setVarArgs(self, has_var_args):
+        self.has_var_args = has_var_args
 
     def getFormals(self):
         return self.formal_args
@@ -977,7 +1115,10 @@ class MethodInfo(PrgmType):
             use_name = override_name
 
         s += f'{self.return_type.name} {class_part}{use_name}('
-        s += ', '.join(map(lambda arg: f'{arg}', FormalArg.filter_signature_args(self.formal_args)))
+        formals = map(lambda arg: f'{arg}', FormalArg.filter_signature_args(self.formal_args))
+        if self.has_var_args:
+            formals.append("...")
+        s += ', '.join(formals)
         s += ')'
         if self.virtual == dwarf_constants.DW_VIRTUALITY_pure_virtual:
             # pure virtual.
@@ -1003,6 +1144,8 @@ class MethodInfo(PrgmType):
         arg_lines = []
         for arg in self.formal_args:
             arg_lines.append(arg.type_tree(indent + 1))
+        if self.has_var_args:
+            arg_lines.append("<variable-length arguments>")
         details += '\n'.join(arg_lines)
         return details
 
@@ -1145,6 +1288,9 @@ class FieldType(PrgmType):
     def is_type(self):
         return False
 
+    def getOrigin(self):
+        return self._parent_type.getOrigin()
+
     def __repr__(self):
         if self.accessibility == PUBLIC:
             acc = 'public'
@@ -1179,7 +1325,12 @@ class ClassType(PrgmType):
         self.class_name = class_name
         self.methods = []
         self.fields = []
+        self.extends = []
+        if base_type is not None:
+            self.extends.append(base_type)
 
+    def addInheritsFrom(self, inherits_from):
+        self.extends.append(inherits_from)
 
     def addMethod(self, method_type):
         self.methods.append(method_type)
@@ -1201,8 +1352,9 @@ class ClassType(PrgmType):
 
     def __repr__(self):
         s = f'{self.name}'
-        if self.parent_type():
-            s += f' <subtype of {self.parent_type().name}>'
+        if len(self.extends) > 0:
+            extend_names = ", ".join(map(lambda x: x.name, self.extends))
+            s += f' <subtype of {extend_names}>'
         s += ' {\n'
         decl_methods = list(filter(lambda m: m.is_decl, self.methods))
         if len(decl_methods) + len(self.fields) > 0:
@@ -1504,10 +1656,11 @@ class ParsedDebugInfo(object):
     """
 
     # List of 'context' keys for .debug_info DIE parsing that should always be in the `context`
-    # map. Keep this in sync with the fields populated in context in parseTypeInfo()
+    # map. Keep this in sync with the fields populated in context in parseTypeInfo(), and fields
+    # reset within _fresh_context()
     _default_context_keys = [
         'debugger', 'int_size', 'range_lists', 'loc_lists', 'dwarf_ver',
-        'nesting', 'print_full_die']
+        'nesting', 'print_full_die', 'active_namespace_scopes', 'namespace_prefix']
 
     def __init__(self, debugger):
         self._debugger = debugger
@@ -1756,6 +1909,8 @@ class ParsedDebugInfo(object):
 
             ctxt['nesting'] = 0             # wipe/reset nesting level back to 0 for a jump to DIE.
             ctxt['print_full_die'] = None   # Don't recursively print entire DIE for seek'd DIEs.
+            ctxt['active_namespace_scopes'] = []  # Fresh understanding of namespace nesting
+            ctxt['namespace_prefix'] = None  # Jump-ahead elements aren't part of current namespace.
 
             return ctxt
 
@@ -1900,6 +2055,10 @@ class ParsedDebugInfo(object):
             base = _lookup_type() or _VOID
             ref = ReferenceType(base, self.addr_size)
             _add_entry(ref, ref.name, die.offset)
+        elif die.tag == 'DW_TAG_rvalue_reference_type':
+            base = _lookup_type() or _VOID
+            ref = RValReferenceType(base, self.addr_size)
+            _add_entry(ref, ref.name, die.offset)
         elif die.tag == 'DW_TAG_typedef':
             # name, type
             base = _lookup_type()
@@ -1944,7 +2103,6 @@ class ParsedDebugInfo(object):
             context['enum'].addEnum(name, val)
         elif die.tag == 'DW_TAG_structure_type' or die.tag == 'DW_TAG_class_type':  # class or struct
             # name, byte_size, containing_type
-            # TODO(aaron): can have 1+ DW_TAG_inheritance that duplicate or augment containing_type
             if name is None:
                 name = dieattr('linkage_name', None)
             size = dieattr('byte_size')
@@ -1962,6 +2120,9 @@ class ParsedDebugInfo(object):
             ctxt['class'] = class_type
             for child in die.iter_children():
                 self.parseTypesFromDIE(child, cuns, ctxt)
+        elif die.tag == 'DW_TAG_inheritance':
+            if name is not None:
+                ctxt['class'].addInheritsFrom(name)
         elif die.tag == 'DW_TAG_union_type':
             if name is None:
                 name = dieattr('linkage_name', None)
@@ -2276,6 +2437,31 @@ class ParsedDebugInfo(object):
             formal = FormalArg(name, base, cuns, origin, location, const_val, None, artificial)
             context['method'].addFormal(formal)
             _add_entry(formal, None, die.offset)
+        elif die.tag == 'DW_TAG_unspecified_parameters':
+            # We have a va_args argument on this method.
+            context['method'].setVarArgs(True)
+        elif die.tag == 'DW_TAG_template_type_param' or die.tag == 'DW_TAG_template_value_param':
+            typ = _lookup_type()
+
+            scope = context.get('method', None)
+            if scope is None:
+                scope = context.get('class', None)
+
+            if scope is None:
+                debugger.verboseprint(
+                    f"Got template type parameter '{name}' but no enclosing "
+                    f"method or class definition; ignoring")
+            else:
+                template_param = TemplateParam(name, typ, cuns, scope)
+                scope.add_template_param(template_param)
+                if hasattr('default_value'):
+                    template_param.set_default_val(dieattr('default_value'))
+                if hasattr('const_value'):
+                    template_param.set_actual_val(dieattr('const_value'))
+                if hasattr('location'):
+                    template_param.set_location(_get_locations())
+
+            _add_entry(template_param, None, die.offset)
         elif die.tag == 'DW_TAG_variable':
             origin = None
             if dieattr('abstract_origin'):
@@ -2283,11 +2469,16 @@ class ParsedDebugInfo(object):
             elif dieattr('specification'):
                 origin = _resolve_abstract_origin('specification')
 
+            if name is None and dieattr('linkage_name'):
+                name = dieattr('linkage_name')
+
             if name is None and origin is not None:
+                debugger.verboseprint("In DW_TAG_var... using origin for name: ", origin, "\n", die)
                 name = origin.var_name
             base = _lookup_type()
             if base is None and origin is not None:
-                base = origin.var_type
+                debugger.verboseprint("In DW_TAG_var... using origin for type: ", origin, "\n", die)
+                base = origin.get_type()
             location = _get_locations()
             is_decl = dieattr('declaration') and True
             is_def = not is_decl  # Variables are one or the other of decl and def.
@@ -2333,10 +2524,67 @@ class ParsedDebugInfo(object):
 
             proc = DwarfProcedure(cuns, location, const_val, enclosing_scope)
             _add_entry(proc, None, die.offset)
-        else:
-            # TODO(aaron): Consider parsing DW_TAG_GNU_call_site
+        elif die.tag == "DW_TAG_unspecified_type":
+            # User referenced an incomplete type. Give this a very generic definition in debugger.
+            name = dieattr('name')
+            typ = PrgmType(name, size=0, parent_type=None)
+            _add_entry(typ, name, die.offset)
+        elif die.tag == "DW_TAG_imported_declaration":
+            # Either we're directly referencing a declaration made in another compilation unit,
+            # in which case we should just bind it to this addr, or we are renaming it within the
+            # scope of this cuns, in which case we make an alias.
+            imported = _lookup_type("import")
+            if imported is None:
+                debugger.verboseprint("DW_TAG_imported_declaration does not specify DW_AT_import; ignoring")
+            elif name is None:
+                # Direct import; just make a second ptr to it at this offset location.
+                _add_entry(imported, None, die.offset)
+            else:
+                # Alias.
+                alias = AliasType(name, imported)
+                _add_entry(alias, name, die.offset)
+        elif die.tag == "DW_TAG_namespace":
+            if name is not None:
+                context['active_namespace_scopes'].append(name)
+                prior_prefix = context['namespace_prefix']
+                if prior_prefix is None:
+                    context['namespace_prefix'] = name
+                else:
+                    context['namespace_prefix'] = prior_prefix + "::" + name
+
+                # Process elements of the namespace.
+                for child in die.iter_children():
+                    self.parseTypesFromDIE(child, cuns, context)
+
+                # Restore prior context.
+                context['namespace_prefix'] = prior_prefix
+                context['active_namespace_scopes'].pop()
+        elif die.tag == 'DW_TAG_GNU_call_site' or die.tag == 'DW_TAG_GNU_call_site_parameter' \
+                or die.tag == 'DW_TAG_GNU_template_parameter_pack' \
+                or die.tag == 'DW_TAG_GNU_formal_parameter_pack':
+            # TODO(aaron): Consider parsing DW_TAG_GNU_call_site and other GNU extensions.
+            # For now just make sure we extract any types from within.
             for child in die.iter_children():
                 self.parseTypesFromDIE(child, cuns, context)
+        elif die.tag == 'DW_TAG_compile_unit':
+            # The compilation unit namespace object was already defined before entering
+            # this method; just parse its children.
+            for child in die.iter_children():
+                self.parseTypesFromDIE(child, cuns, context)
+        elif die.tag == 'DW_TAG_imported_module':
+            # TODO: Anything needed to handle `using namespace Foo` e.g. creating AliasTypes that
+            # rename namespace members within here? We currently parse children w/o further
+            # attention to the import itself.
+            for child in die.iter_children():
+                self.parseTypesFromDIE(child, cuns, context)
+        elif die.tag == 'DW_TAG_label':
+            pass  # line name for 'goto' statement; ignore.
+        else:
+            debugger.msg_q(term.WARN, '** WARNING: Could not process DIE entry (unknown tag):')
+            debugger.msg_q(term.WARN, die)
+            for child in die.iter_children():
+                self.parseTypesFromDIE(child, cuns, context)
+
 
 
     def parseTypeInfo(self, dwarf_info):
@@ -2349,6 +2597,9 @@ class ParsedDebugInfo(object):
         context['loc_lists'] = dwarf_info.location_lists()
         context['nesting'] = 0
         context['print_full_die'] = None
+        context['active_namespace_scopes'] = []  # Namespaces that lexically enclose current definition
+        context['namespace_prefix'] = None  # String to prepend on identifiers like 'std' for 'std::foo'
+
         # TODO(aaron): If you add entries to context here, add to _default_context_keys.
 
         for compile_unit in dwarf_info.iter_CUs():
@@ -2362,4 +2613,3 @@ class ParsedDebugInfo(object):
             self.parseTypesFromDIE(compile_unit.get_top_DIE(), cuns, context)
 
 
-# TODO(aaron): UnionType?
