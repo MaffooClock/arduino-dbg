@@ -919,7 +919,7 @@ class Debugger(object):
             self.verboseprint("Warning: no debug info in program binary.")
 
         end_time = time.time()
-        self.verboseprint(f'Loaded debug information in {1000*(end_time - start_time):0.01f}ms.')
+        self.msg_q(term.INFO, f'Loaded debug information in {1000*(end_time - start_time):0.01f}ms.')
         self._loaded_debug_info = True
 
 
