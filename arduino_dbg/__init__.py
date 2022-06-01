@@ -11,7 +11,9 @@ __version__ = DBG_VERSION_STR
 
 
 def _parseArgs():
-    parser = argparse.ArgumentParser(description="Serial debugger client for Arduino apps")
+    parser = argparse.ArgumentParser(
+            description="Serial debugger client for Arduino apps",
+            prog="arduino-dbg")
     parser.add_argument("-p", "--port")
     parser.add_argument("-f", "--file", metavar="elf_file")
     parser.add_argument("-d", "--dump", metavar="dump_file")
