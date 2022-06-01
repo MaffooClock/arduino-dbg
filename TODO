@@ -28,9 +28,12 @@ General:
 
   * Add watchpoint commands.
 
+  * `info`, `print`, etc. should handle float / double types.
+
   * Add formatted print keywords:
       `print/d`, `print/b`, `print/x` for integers.
       `print/a`, `print/u`, `print/d`, `print/x` for strings in ascii, utf8, or dec/hex byte vals.
+      `print/f` - floating point.
 
       ... should these modifiers also apply to 'locals' and 'frame' ?
       At minimum they need to also apply to 'info'.
