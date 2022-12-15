@@ -1115,7 +1115,7 @@ class MethodInfo(PrgmType):
             use_name = override_name
 
         s += f'{self.return_type.name} {class_part}{use_name}('
-        formals = map(lambda arg: f'{arg}', FormalArg.filter_signature_args(self.formal_args))
+        formals = list(map(lambda arg: f'{arg}', FormalArg.filter_signature_args(self.formal_args)))
         if self.has_var_args:
             formals.append("...")
         s += ', '.join(formals)
@@ -1385,7 +1385,7 @@ class ClassType(PrgmType):
         return details
 
 
-class UnionType(PrgmType):
+class UnionType(ClassType):
     """
     A union (OR-type)
     """
@@ -1395,20 +1395,8 @@ class UnionType(PrgmType):
             full_name = '<union>'
         else:
             full_name = 'union ' + union_name
-        PrgmType.__init__(self, full_name, size, base_type)
-
-        self.union_name = union_name
-        self.fields = []
-
-
-    def addField(self, field_type):
-        self.fields.append(field_type)
-
-    def getField(self, fieldName):
-        for f in self.fields:
-            if f.field_name == fieldName:
-                return f
-        return None
+        ClassType.__init__(self, union_name, size, base_type)
+        self.name = full_name  # Override 'class ' + union_name from parent.
 
     def is_union(self):
         return True
@@ -1432,7 +1420,7 @@ class UnionType(PrgmType):
         Each line of text output should be indented by 2*indent spaces.
         """
         pad = indent * '  '
-        details = pad + f'union {self.union_name}'
+        details = pad + f'union {self.class_name}'
         details += '\n' + pad + 'Fields:\n' + pad
         field_lines = []
         for field in self.fields:
@@ -2074,16 +2062,27 @@ class ParsedDebugInfo(object):
             for child in die.iter_children():
                 self.parseTypesFromDIE(child, cuns, ctxt)
         elif die.tag == 'DW_TAG_subrange_type':  # Size of array
-            # [lower_bound=0], upper_bound
-            lower = dieattr("lower_bound", 0)
-            upper = dieattr("upper_bound")
-            if upper is None:
-                # We may declare the presence of a const array of unknown size in a .h file
-                # (`const some_t foo[];`) without giving its contents until definition in
-                # some .cpp file. Length unknown for now.
-                length = None
+            arr_count = dieattr("count", None)
+            if arr_count is not None:
+                # We have an explicit 'count' field to use for array size.
+                length = arr_count
             else:
-                length = upper - lower + 1
+                # [lower_bound=0], upper_bound
+                lower = dieattr("lower_bound", 0)
+                upper = dieattr("upper_bound")
+
+                if upper is None:
+                    # We may declare the presence of a const array of unknown size in a .h file
+                    # (`const some_t foo[];`) without giving its contents until definition in
+                    # some .cpp file. Length unknown for now.
+                    length = None
+                elif isinstance(upper, int):
+                    length = upper - lower + 1
+                elif isinstance(upper, list):
+                    # It's a multi-dimensional array.
+                    length = 1
+                    for dim in upper:
+                        length = length * dim
             context['array'].setLength(length)
         elif die.tag == 'DW_TAG_enumeration_type':
             # name, type, byte_size
